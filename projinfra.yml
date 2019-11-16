@@ -1,0 +1,328 @@
+
+Parameters:
+
+  EnvironmentName:
+      Description: "A way to describe your environment"
+      Type: String
+    
+  VpcCIDR:
+      Description: "The CIDR block for the VPC"
+      Type: String
+      Default: 10.4.0.0/16
+
+  PublicSubnet1CIDR:
+      Description: The subnet1 for public routing
+      Type: String
+      Default: 10.4.0.0/24
+
+  PublicSubnet2CIDR:
+      Description: The subnet2 for public routing
+      Type: String
+      Default: 10.4.1.0/24
+
+  PrivateSubnet1CIDR:
+      Description: The subnet1 for private routing
+      Type: String
+      Default: 10.4.2.0/24
+
+  PrivateSubnet2CIDR:
+      Description: The subnet2 for private routing
+      Type: String
+      Default: 10.4.3.0/24
+
+  KeyName:
+      Description: "The ssh key for the instances"
+      Type: AWS::EC2::KeyPair::KeyName
+      Default: proj
+
+
+
+Resources:
+
+  VPC:
+      Type: AWS::EC2::VPC
+      Properties: 
+         CidrBlock: !Ref VpcCIDR
+         EnableDnsHostnames: true
+         Tags: 
+            - Key: Name
+              Value: !Ref EnvironmentName
+
+  InternetGateway:
+      Type: AWS::EC2::InternetGateway
+      Properties:
+         Tags:
+            - Key: Name
+              Value: !Ref EnvironmentName
+
+  IGWAttachment:
+      Type: AWS::EC2::VPCGatewayAttachment
+      Properties:
+         InternetGatewayId: !Ref InternetGateway
+         VpcId: !Ref VPC
+
+  PublicSubnet1:
+      Type: AWS::EC2::Subnet
+      Properties:
+         AvailabilityZone: !Select [ 0, !GetAZs '']
+         VpcId: !Ref VPC
+         CidrBlock: !Ref PublicSubnet1CIDR
+         MapPublicIpOnLaunch: true
+         Tags:
+           - Key: Name
+             Value: !Sub ${EnvironmentName} Public Subnet1 (AZ1)
+
+  PublicSubnet2:
+      Type: AWS::EC2::Subnet
+      Properties:
+         AvailabilityZone: !Select [ 1, !GetAZs '']
+         VpcId: !Ref VPC
+         CidrBlock: !Ref PublicSubnet2CIDR
+         MapPublicIpOnLaunch: true
+         Tags:
+           - Key: Name
+             Value: !Sub ${EnvironmentName} Public Subnet2 (AZ2)
+
+  PrivateSubnet1:
+      Type: AWS::EC2::Subnet
+      Properties:
+         AvailabilityZone: !Select [ 0, !GetAZs '']
+         VpcId: !Ref VPC
+         CidrBlock: !Ref PrivateSubnet1CIDR
+         MapPublicIpOnLaunch: false
+         Tags:
+           - Key: Name
+             Value: !Sub ${EnvironmentName} Private Subnet1 (AZ1)
+
+  PrivateSubnet2:
+      Type: AWS::EC2::Subnet
+      Properties:
+         AvailabilityZone: !Select [ 1, !GetAZs '']
+         VpcId: !Ref VPC
+         CidrBlock: !Ref PrivateSubnet2CIDR
+         MapPublicIpOnLaunch: false
+         Tags:
+           - Key: Name
+             Value: !Sub ${EnvironmentName} Private Subnet2 (AZ2)
+
+  Pubroutetable:
+      Type: AWS::EC2::RouteTable
+      Properties:
+         VpcId: !Ref VPC
+         Tags:
+           - Key: Name
+             Value: !Sub ${EnvironmentName} Public Subnet
+
+  Privroutetable1:
+      Type: AWS::EC2::RouteTable
+      Properties:
+         VpcId: !Ref VPC
+         Tags:
+           - Key: Name
+             Value: !Sub ${EnvironmentName} Private routes (AZ1)
+
+  Privroutetable2:
+      Type: AWS::EC2::RouteTable
+      Properties:
+         VpcId: !Ref VPC
+         Tags:
+           - Key: Name
+             Value: !Sub ${EnvironmentName} Private routes (AZ2)
+
+  DefaultPublicRoute:
+      Type: AWS::EC2::Route
+      Properties:
+         DestinationCidrBlock: 0.0.0.0/0
+         RouteTableId: !Ref Pubroutetable
+         GatewayId: !Ref InternetGateway
+
+  NatGwyEIP1:
+      Type: AWS::EC2::EIP
+      DependsOn: IGWAttachment
+      Properties: 
+         Domain: !Ref VPC
+
+  NatGwyEIP2:
+      Type: AWS::EC2::EIP
+      DependsOn: IGWAttachment
+      Properties: 
+         Domain: !Ref VPC
+
+  NatGwy1:
+      Type: AWS::EC2::NatGateway
+      Properties:
+         AllocationId: !GetAtt NatGwyEIP1.AllocationId
+         SubnetId: !Ref PublicSubnet1
+        
+  NatGwy2:
+      Type: AWS::EC2::NatGateway
+      Properties:
+         AllocationId: !GetAtt NatGwyEIP2.AllocationId
+         SubnetId: !Ref PublicSubnet2
+
+  DefaultPrivateRoute1:
+      Type: AWS::EC2::Route
+      Properties:
+         DestinationCidrBlock: 0.0.0.0/0
+         RouteTableId: !Ref Privroutetable1
+         NatGatewayId: !Ref NatGwy1
+
+  DefaultPrivateRoute2:
+      Type: AWS::EC2::Route
+      Properties:
+         DestinationCidrBlock: 0.0.0.0/0
+         RouteTableId: !Ref Privroutetable2
+         NatGatewayId: !Ref NatGwy2
+
+  PublicRouteTableAssociation1:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+         RouteTableId: !Ref Pubroutetable
+         SubnetId: !Ref PublicSubnet1
+
+  PublicRouteTableAssociation2:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+         RouteTableId: !Ref Pubroutetable
+         SubnetId: !Ref PublicSubnet2
+
+  PrivateRouteTableAssociation1:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+         RouteTableId: !Ref Privroutetable1
+         SubnetId: !Ref PrivateSubnet1
+
+  PrivateRouteTableAssociation2:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+         RouteTableId: !Ref Privroutetable2
+         SubnetId: !Ref PrivateSubnet2
+
+  EIP3:
+      Type: AWS::EC2::EIP
+      Properties:
+          Domain: !Ref VPC
+
+  AssociateEIP3:
+      Type: AWS::EC2::EIPAssociation
+      Properties:
+          AllocationId: !GetAtt EIP3.AllocationId
+          NetworkInterfaceId: !Ref SSHInterface
+          
+
+  SSHInterface:
+      Type: AWS::EC2::NetworkInterface
+      DependsOn: EIP3
+      Properties:
+           SubnetId: !Ref PublicSubnet1
+           Description: Interface for controlling traffic such as SSH
+           GroupSet: 
+           - !Ref SSHServerSG
+           SourceDestCheck: true
+
+  SSHHost:
+      Type: AWS::EC2::Instance
+      Properties:
+          ImageId: ami-005bdb005fb00e791
+          InstanceType: t3.small
+          KeyName: !Ref KeyName
+          NetworkInterfaces:
+            - 
+               NetworkInterfaceId: !Ref SSHInterface
+               DeviceIndex: 0
+          UserData:
+            Fn::Base64: !Sub |
+               #!/bin/bash
+               apt-get update -y
+               apt-get install unzip awscli -y
+
+  SSHServerSG:
+      Type: AWS::EC2::SecurityGroup
+      Properties:
+         GroupDescription: Security group for web server
+         VpcId: 
+           Fn::ImportValue:
+             !Sub "${EnvironmentName}-VPCID"
+         SecurityGroupIngress:
+         - IpProtocol: tcp
+           FromPort: 22
+           ToPort: 22
+           CidrIp: 0.0.0.0/0
+         SecurityGroupEgress:
+         - IpProtocol: -1
+           CidrIp: 0.0.0.0/0
+
+
+Outputs:
+
+  VPC:
+      Description: The vpc to be exported for crossstack
+      Value: !Ref VPC
+      Export:
+          Name: !Sub ${EnvironmentName}-VPCID
+
+  VPCPublicRoutetable:
+      Description: The route table for public subnets
+      Value: !Ref Pubroutetable
+      Export:
+          Name: !Sub ${EnvironmentName}-PubRT
+
+  VPCPrivateRoutetable1:
+      Description: The route table for private subnet1
+      Value: !Ref Privroutetable1
+      Export:
+          Name: !Sub ${EnvironmentName}-PrivRT1
+
+  VPCPrivateRoutetable2:
+      Description: The route table for private subnet2
+      Value: !Ref Privroutetable2
+      Export:
+          Name: !Sub ${EnvironmentName}-PrivRT2
+
+  VPCPublicSubnet1:
+      Description: The public subnet1
+      Value: !Ref PublicSubnet1
+      Export:
+          Name: !Sub ${EnvironmentName}-PUB1-SN
+
+  VPCPublicSubnet2:
+      Description: The public subnet2
+      Value: !Ref PublicSubnet2
+      Export:
+          Name: !Sub ${EnvironmentName}-PUB2-SN
+
+  VPCPrivateSubnet1:
+      Description: The private subnet1
+      Value: !Ref PrivateSubnet1
+      Export:
+          Name: !Sub ${EnvironmentName}-PRIV1-SN
+
+  VPCPrivateSubnet2:
+      Description: The private subnet2
+      Value: !Ref PrivateSubnet2
+      Export:
+          Name: !Sub ${EnvironmentName}-PRIV2-SN
+
+  VPCPublicSubnets:
+      Description: The public subnets
+      Value: !Join [',', [ !Ref PublicSubnet1, !Ref PublicSubnet2 ]]
+      Export:
+          Name: !Sub ${EnvironmentName}-PUB-NET
+
+  VPCPrivateSubnets:
+      Description: The private subnets
+      Value: !Join [ ',', [ !Ref PrivateSubnet1, !Ref PrivateSubnet2 ]]
+      Export:
+          Name: !Sub ${EnvironmentName}-PRIV-NET
+
+  
+  
+
+  
+  
+
+  
+      
+
+            
+      
